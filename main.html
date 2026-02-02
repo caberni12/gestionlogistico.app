@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Sistema Logístico</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<style>
+:root{
+ --bg:#f8fafc;
+ --panel:#ffffff;
+ --txt:#000000;
+ --pri:#2563eb;
+ --border:#cbd5e1;
+}
+
+[data-theme="dark"]{
+ --bg:#f9fafd;
+ --panel:#000000;
+ --txt:#e5e7eb;
+ --border:#1e293b;
+}
+
+*{box-sizing:border-box;font-family:Arial}
+
+body{
+ margin:0;
+ background:var(--bg);
+ color:var(--txt);
+ overflow:hidden;
+}
+
+/* ===== SIDEBAR ===== */
+aside{
+ position:fixed;
+ top:0;left:0;
+ width:260px;height:100vh;
+ background:var(--panel);
+ border-right:1px solid var(--border);
+ padding:20px;
+ transform:translateX(-100%);
+ transition:.3s;
+ z-index:1000;
+}
+aside.show{transform:translateX(0)}
+
+.logo{
+ font-size:20px;
+ font-weight:900;
+ margin-bottom:20px;
+}
+
+.menu button{
+ width:100%;
+ padding:14px;
+ border-radius:10px;
+ border:1px solid var(--border);
+ background:transparent;
+ color:var(--txt);
+ cursor:pointer;
+ font-size:15px;
+ text-align:left;
+ transition:.2s;
+}
+.menu button:hover,
+.menu button.active{
+ background:var(--pri);
+ color:#fff;
+ border-color:var(--pri);
+}
+
+/* ===== OVERLAY ===== */
+.overlay{
+ position:fixed;
+ inset:0;
+ background:#0006;
+ opacity:0;
+ pointer-events:none;
+ transition:.3s;
+ z-index:900;
+}
+.overlay.show{
+ opacity:1;
+ pointer-events:auto;
+}
+
+/* ===== MAIN ===== */
+main{
+ width:100vw;
+ height:100vh;
+ display:flex;
+ flex-direction:column;
+}
+
+/* ===== TOPBAR ===== */
+.topbar{
+ height:56px;
+ display:flex;
+ align-items:center;
+ justify-content:space-between;
+ padding:0 16px;
+ background:var(--panel);
+ border-bottom:1px solid var(--border);
+}
+
+.left{
+ display:flex;
+ align-items:center;
+ gap:14px;
+}
+
+.hamburger{
+ font-size:26px;
+ cursor:pointer;
+ user-select:none;
+}
+
+.theme-toggle{
+ cursor:pointer;
+ font-size:20px;
+ user-select:none;
+}
+
+/* ===== IFRAME ===== */
+iframe{
+ flex:1;
+ width:100%;
+ border:0;
+ background:transparent;
+}
+</style>
+</head>
+
+<body>
+
+<!-- SIDEBAR -->
+<aside id="sidebar">
+  <div class="logo">📦 LOGÍSTICA</div>
+  <div class="menu">
+    <button class="active" onclick="loadModule('etiquetas.html',this)">🖨 Etiquetas</button>
+    <button onclick="loadModule('dashboard.html',this)">📊 Dashboard</button>
+    <button onclick="loadModule('codigobarra.html',this)">🏷️ Código de Barra</button>
+      
+</div>
+</aside>
+
+<div id="overlay" class="overlay" onclick="closeMenu()"></div>
+
+<!-- MAIN -->
+<main>
+  <div class="topbar">
+    <div class="left">
+      <div class="hamburger" onclick="toggleMenu()">☰</div>
+      <b>Sistema Logístico</b>
+    </div>
+    <div class="theme-toggle" onclick="toggleTheme()">🌙</div>
+  </div>
+
+  <iframe id="frame" src="dashboard.html"></iframe>
+</main>
+
+<script>
+const sidebar = document.getElementById("sidebar");
+const overlay = document.getElementById("overlay");
+const frame   = document.getElementById("frame");
+const root    = document.documentElement;
+
+/* ===== MENU ===== */
+function toggleMenu(){
+ sidebar.classList.toggle("show");
+ overlay.classList.toggle("show");
+}
+function closeMenu(){
+ sidebar.classList.remove("show");
+ overlay.classList.remove("show");
+}
+
+/* ===== LOAD MODULE ===== */
+function loadModule(url,btn){
+ frame.src = url;
+ document.querySelectorAll(".menu button")
+  .forEach(b=>b.classList.remove("active"));
+ btn.classList.add("active");
+ closeMenu();
+}
+
+/* ===== THEME ===== */
+function applyTheme(theme){
+ root.dataset.theme = theme;
+ localStorage.theme = theme;
+
+ // aplicar al iframe cuando cargue
+ frame.onload = () => {
+   try{
+     frame.contentDocument.documentElement.dataset.theme = theme;
+   }catch(e){}
+ };
+ // aplicar si ya está cargado
+ try{
+   frame.contentDocument.documentElement.dataset.theme = theme;
+ }catch(e){}
+}
+
+function toggleTheme(){
+ const t = root.dataset.theme === "dark" ? "light" : "dark";
+ applyTheme(t);
+}
+
+/* ===== INIT ===== */
+const saved = localStorage.theme || "light";
+applyTheme(saved);
+</script>
+
+</body>
+</html>

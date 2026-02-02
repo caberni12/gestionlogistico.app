@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Sistema de Etiquetas</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<!-- LIBRERÍAS -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+<style>
+:root{
+ --w:80mm;
+ --h:50mm;
+}
+*{box-sizing:border-box;font-family:Arial}
+body{margin:0;background:#0f172a;color:#fff}
+
+/* ===== LAYOUT (NO SE IMPRIME) ===== */
+.wrap{
+ display:grid;
+ grid-template-columns:380px 1fr;
+ gap:20px;
+ padding:20px;
+}
+.card{
+ background:#020617;
+ border-radius:14px;
+ padding:20px;
+}
+h2,h3{margin-top:0}
+input,select,button{
+ width:100%;padding:12px;margin-top:10px;
+ border-radius:10px;border:none
+}
+input{background:#fff;color:#000}
+button{background:#2563eb;color:#fff;font-weight:700;cursor:pointer}
+.secondary{background:#475569}
+.info{font-size:14px;margin-top:10px}
+
+/* ===== ETIQUETAS ===== */
+.sheet{
+ display:flex;
+ flex-wrap:wrap;
+ gap:4mm;
+ padding:4mm;
+ background:#fff;
+}
+.label{
+ width:var(--w);
+ height:var(--h);
+ background:#fff;
+ color:#000;
+ padding:4mm;
+ page-break-inside:avoid;
+}
+.codigo{
+ text-align:center;
+ font-size:22px;
+ font-weight:900;
+}
+.descripcion{
+ text-align:center;
+ font-size:14px;
+ font-weight:700;
+}
+.unidades{
+ text-align:center;
+ font-size:16px;
+ font-weight:900;
+ margin-top:2mm
+}
+.code{
+ display:flex;
+ justify-content:center;
+ align-items:center;
+ margin:3mm 0;
+}
+.code svg,
+.code canvas{
+ display:block;
+ margin:auto;
+}
+
+/* ===== IMPRIMIR SOLO ETIQUETAS ===== */
+@page{margin:0}
+@media print{
+ body{background:#fff}
+ body *{display:none !important}
+ .sheet,.sheet *{display:block !important}
+ .sheet{
+  position:absolute;
+  left:0;top:0;
+  width:100%;
+  background:#fff !important;
+ }
+}
+</style>
+</head>
+
+<body>
+
+<div class="wrap">
+
+<!-- ================= IMPORTADOR ================= -->
+<div class="card">
+<h2>Importar productos</h2>
+<p>XLSX: <b>CODIGO | DESCRIPCION | UNIDADES</b></p>
+
+<input type="file" accept=".xlsx" id="file">
+<button onclick="importar()">⬆️ Importar a Google Sheets</button>
+<div class="info" id="info">Esperando archivo…</div>
+</div>
+
+<!-- ================= BUSCADOR + GENERADOR ================= -->
+<div class="card">
+<h3>Generador de etiquetas</h3>
+
+<label>Buscar producto</label>
+<input id="search" placeholder="Código o descripción" oninput="buscar()">
+<div class="results" id="results"></div>
+
+<label>Tipo de código</label>
+<select id="tipo">
+ <option value="QR">QR</option>
+ <option value="CODE128">CODE 128</option>
+ <option value="CODE39">CODE 39</option>
+</select>
+
+<label>Código</label>
+<input id="codigo">
+
+<label>Descripción</label>
+<input id="descripcion">
+
+<label>Unidades</label>
+<input id="unidades" type="number" value="1">
+
+<label>Cantidad de etiquetas</label>
+<input id="cant" type="number" value="1">
+
+<label>Ancho etiqueta (mm)</label>
+<input id="w" type="number" value="80">
+
+<label>Alto etiqueta (mm)</label>
+<input id="h" type="number" value="50">
+
+<button class="secondary" onclick="preAgregar()">➕ Pre-agregar</button>
+<button onclick="imprimir()">🖨️ Imprimir etiquetas</button>
+</div>
+
+</div>
+
+<!-- ===== SOLO ESTO SE IMPRIME ===== -->
+<div class="sheet" id="preview"></div>
+
+<script>
+const API =
+"https://script.google.com/macros/s/AKfycbwOx6mRhIPWQLXXeH5s_Fsw3A6A_dZv-ATUxQpybSR5jsoaH34i8c62eIhipmNy--ug/exec";
+
+let productos=[];
+let buffer=[];
+
+/* ========= IMPORTADOR ========= */
+file.addEventListener("change",()=>{
+ const r=new FileReader();
+ r.onload=e=>{
+  const wb=XLSX.read(e.target.result,{type:"binary"});
+  productos=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+  info.innerHTML=`Productos detectados: <b>${productos.length}</b>`;
+ };
+ r.readAsBinaryString(file.files[0]);
+});
+
+function importar(){
+ if(!productos.length){info.textContent="No hay datos";return;}
+ const fd=new FormData();
+ fd.append("action","import");
+ fd.append("productos",JSON.stringify(productos));
+ info.textContent="Importando…";
+ fetch(API,{method:"POST",body:fd})
+  .then(r=>r.json())
+  .then(res=>{
+   info.textContent=`Importados: ${res.insertados} | Ignorados: ${res.ignorados}`;
+   cargarBD();
+  });
+}
+
+/* ========= CARGAR BD ========= */
+function cargarBD(){
+ fetch(API).then(r=>r.json()).then(d=>productos=d);
+}
+cargarBD();
+
+/* ========= BUSCADOR ========= */
+function buscar(){
+ const q=search.value.toLowerCase();
+ if(!q){results.innerHTML="";return;}
+ results.innerHTML=productos.filter(p=>
+  p.CODIGO.toLowerCase().includes(q) ||
+  p.DESCRIPCION.toLowerCase().includes(q)
+ ).slice(0,6).map(p=>`
+  <div class="result" onclick="seleccionar('${p.CODIGO}','${p.DESCRIPCION}','${p.UNIDADES}')">
+   <b>${p.CODIGO}</b> – ${p.DESCRIPCION}
+  </div>`).join("");
+}
+
+function seleccionar(c,d,u){
+ codigo.value=c;
+ descripcion.value=d;
+ unidades.value=u || 1;
+ results.innerHTML="";
+}
+
+/* ========= PRE AGREGAR ========= */
+function preAgregar(){
+ buffer.push({
+  codigo:codigo.value,
+  descripcion:descripcion.value,
+  unidades:unidades.value,
+  tipo:tipo.value,
+  cant:+cant.value,
+  w:w.value,
+  h:h.value
+ });
+ alert("Etiqueta agregada");
+}
+
+/* ========= IMPRIMIR ========= */
+function imprimir(){
+ preview.innerHTML="";
+ buffer.forEach(b=>{
+  document.documentElement.style.setProperty("--w",b.w+"mm");
+  document.documentElement.style.setProperty("--h",b.h+"mm");
+
+  for(let i=0;i<b.cant;i++){
+   const l=document.createElement("div");
+   l.className="label";
+   l.innerHTML=`
+    <div class="codigo">${b.codigo}</div>
+    <div class="code"></div>
+    <div class="descripcion">${b.descripcion}</div>
+    <div class="unidades">UND: ${b.unidades}</div>`;
+   preview.appendChild(l);
+
+   const c=l.querySelector(".code");
+   if(b.tipo==="QR"){
+    new QRCode(c,{
+      text:b.codigo,
+      width:90,
+      height:90,
+      correctLevel:QRCode.CorrectLevel.M
+    });
+   }else{
+    let v=b.codigo;
+    if(b.tipo==="CODE39") v=v.toUpperCase();
+    const svg=document.createElementNS("http://www.w3.org/2000/svg","svg");
+    c.appendChild(svg);
+    JsBarcode(svg,v,{
+      format:b.tipo,
+      width:2,
+      height:40,
+      displayValue:false,
+      margin:0
+    });
+   }
+  }
+ });
+ window.print();
+ buffer=[];
+}
+</script>
+
+</body>
+</html>

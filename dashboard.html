@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Dashboard Logístico</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.5.29/dist/jspdf.plugin.autotable.min.js"></script>
+
+
+<style>
+:root{
+ --bg:#070707;--card:#0d0d0e;--txt:#fff;--muted:#94a3b8;--pri:#2563eb;
+ --input:#000000;--border:#334155;
+}
+[data-theme="light"]{
+ --bg:#f8fafc;--card:#ffffff;--txt:#0a0a0a;--muted:#475569;--pri:#2563eb;
+ --input:#ffffff;--border:#cbd5e1;
+}
+*{box-sizing:border-box}
+body{font-family:Inter,Arial;background:var(--bg);color:var(--txt);padding:20px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,120px);gap:14px;margin-bottom:18px}
+.kpi{background:var(--card);border-radius:16px;padding:10px;text-align:center}
+.kpi canvas{width:100px!important;height:100px!important}
+.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+.filters{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+input,select{
+ background:var(--input);color:var(--txt);border:1px solid var(--border);
+ padding:10px 60px;border-radius:12px;font-size:15px;outline:none
+}
+input::placeholder{color:var(--muted)}
+button{
+ padding:10px 14px;border:0;border-radius:12px;
+ background:var(--pri);color:#fff;font-weight:600;cursor:pointer
+}
+table{width:100%;border-collapse:collapse;background:var(--card);border-radius:14px;overflow:hidden}
+th,td{padding:10px;border-bottom:1px solid var(--border)}
+th{color:var(--muted);text-align:left}
+.modal{position:fixed;top:0;left:0;width:100%;height:100%;background:#0007;display:none;align-items:center;justify-content:center}
+.modal-content{background:var(--card);padding:20px;border-radius:18px;width:340px}
+
+textarea{resize:vertical}
+
+</style>
+</head>
+
+<body>
+
+  <div class="topbar">
+<h2>Dashboard Logístico</h2>
+<button onclick="toggleTheme()">🌙 / ☀️</button>
+</div>
+<div class="kpis" id="kpis"></div>
+<div class="filters">
+<input id="search" placeholder="Buscar pedido o cliente" oninput="applyFilters()">
+<select id="fComuna" onchange="applyFilters()"><option value="">Todas las comunas</option></select>
+<select id="fStatus" onchange="applyFilters()">
+<option value="">Todos los estados</option>
+<option>PENDIENTE</option>
+<option>EN RUTA</option>
+<option>ENTREGADO</option>
+<option>CANCELADO</option>
+</select>
+<button onclick="openModal()">+ Nuevo</button>
+<button onclick="exportPDF()">PDF</button>
+<button onclick="exportExcel()">Excel</button>
+
+</div>
+<table>
+<thead>
+<tr>
+<th>Fecha</th>
+<th>Pedido</th>
+<th>Cliente</th>
+<th>Dirección</th>
+<th>Comuna</th>
+<th>Cajas</th>
+<th>Observaciones</th>
+<th>Estado</th>
+<th>Acciones</th>
+</tr>
+</thead>
+<tbody id="tbody"></tbody>
+</table>
+<div class="modal" id="modal">
+<div class="modal-content">
+<h3 id="mtitle">Nuevo</h3>
+<button onclick="save()">Guardar</button>
+<button onclick="closeModal()">Cancelar</button>
+<input id="mPedido" placeholder="Pedido">
+<input id="mCliente" placeholder="Cliente">
+<input id="mDireccion" placeholder="Dirección">
+<input id="mComuna" placeholder="Comuna">
+<input id="mCajas" type="number" placeholder="Cantidad de cajas">
+<select id="mStatus">
+  <option>PENDIENTE</option>
+  <option>EN RUTA</option>
+  <option>ENTREGADO</option>
+  <option>CANCELADO</option>
+</select>
+<input id="mObs" placeholder="Observaciones">
+
+</div>
+
+</div>
+<script>
+const API="https://script.google.com/macros/s/AKfycbyc5sAJT8i5gbJPaMtFkAVkm56TxOVyAnHmMPj6wMnTzqxFZiTnU7KoKXsvS2Nblq8bnA/exec";
+let RAW=[], FILT=[], EDIT=null, charts={};
+function toggleTheme(){
+ document.documentElement.dataset.theme =
+  document.documentElement.dataset.theme==="dark"?"light":"dark";
+}
+function drawKPI(id,val,total,color){
+ if(charts[id]) charts[id].destroy();
+ charts[id]=new Chart(document.getElementById(id),{
+  type:'doughnut',
+  data:{datasets:[{data:[val,Math.max(0,total-val)],backgroundColor:[color,'#0000']}]},
+  options:{cutout:'70%',plugins:{legend:{display:false}}}
+ });
+}
+function renderKPIs(){
+ const t=FILT.length;
+ const c=s=>FILT.filter(r=>r.status===s).length;
+ kpis.innerHTML=`
+ <div class="kpi"><canvas id="k1"></canvas><b>${t}</b><br>Total</div>
+ <div class="kpi"><canvas id="k2"></canvas><b>${c('PENDIENTE')}</b><br>Pendiente</div>
+ <div class="kpi"><canvas id="k3"></canvas><b>${c('EN RUTA')}</b><br>En Ruta</div>
+ <div class="kpi"><canvas id="k4"></canvas><b>${c('ENTREGADO')}</b><br>Entregado</div>
+ <div class="kpi"><canvas id="k5"></canvas><b>${c('CANCELADO')}</b><br>Cancelado</div>
+ `;
+ drawKPI("k1",t,t,"#38bdf8");
+ drawKPI("k2",c("PENDIENTE"),t,"#facc15");
+ drawKPI("k3",c("EN RUTA"),t,"#fb923c");
+ drawKPI("k4",c("ENTREGADO"),t,"#4ade80");
+ drawKPI("k5",c("CANCELADO"),t,"#f87171");
+}
+function openModal(r=null){
+ modal.style.display='flex'; EDIT=r;
+ if(r){
+  mtitle.textContent='Editar';
+  mPedido.value=r.pedido;
+  mCliente.value=r.cliente;
+  mDireccion.value=r.direccion;
+  mComuna.value=r.comuna;
+  mCajas.value=r.etiquetas||1;
+  mObs.value=r.observaciones||'';
+  mStatus.value=r.status;
+ }else{
+  mtitle.textContent='Nuevo';
+  mPedido.value=mCliente.value=mDireccion.value=mComuna.value=mObs.value='';
+  mCajas.value=1;
+  mStatus.value='PENDIENTE';
+ }
+}
+function closeModal(){modal.style.display='none';}
+async function save(){
+ const payload={
+  action:EDIT?'update':'add',
+  row:EDIT?Number(EDIT._row):null,
+  PEDIDO:mPedido.value,
+  CLIENTE:mCliente.value,
+  DIRECCION:mDireccion.value,
+  COMUNA:mComuna.value,
+  ETIQUETAS:mCajas.value,
+  OBSERVACIONES:mObs.value,
+  STATUS:mStatus.value
+ };
+ await fetch(API,{method:'POST',body:JSON.stringify(payload)});
+ closeModal(); load();
+}
+async function delRow(row){
+ if(!confirm('Eliminar registro definitivamente?'))return;
+ await fetch(API,{method:'POST',body:JSON.stringify({action:'delete',row:Number(row)})});
+ load();
+}
+function applyFilters(){
+ const q=search.value.toLowerCase();
+ const c=fComuna.value;
+ const s=fStatus.value;
+ FILT=RAW.filter(r=>
+  (!q||(r.pedido+r.cliente).toLowerCase().includes(q)) &&
+  (!c||r.comuna===c) &&
+  (!s||r.status===s)
+ );
+ render();
+}
+function render(){
+ renderKPIs();
+ tbody.innerHTML='';
+ FILT.forEach(r=>{
+  tbody.innerHTML+=`
+  <tr>
+   <td>${r.fechaIngreso}</td>
+   <td>${r.pedido}</td>
+   <td>${r.cliente}</td>
+   <td>${r.direccion}</td>
+   <td>${r.comuna}</td>
+   <td>${r.etiquetas||0}</td>
+   <td>${r.observaciones||''}</td>
+   <td>${r.status}</td>
+   <td>
+    <button onclick="openModal(RAW.find(x=>x._row==${r._row}))">✏</button>
+    <button onclick="delRow(${r._row})">🗑</button>
+   </td>
+  </tr>`;
+ });
+}
+function exportPDF(){
+ const {jsPDF}=window.jspdf;
+ const doc=new jsPDF({orientation:'landscape'});
+ doc.autoTable({
+  head:[[ 'Fecha','Pedido','Cliente','Dirección','Comuna','Cajas','Observaciones','Estado' ]],
+  body:FILT.map(r=>[r.fechaIngreso,r.pedido,r.cliente,r.direccion,r.comuna,r.etiquetas||0,r.observaciones||'',r.status])
+ });
+ doc.save('reporte_pedidos.pdf');
+}
+
+function exportExcel() {
+
+if (typeof XLSX === "undefined") {
+  alert("Error: librería XLSX no cargada");
+  return;
+}
+
+if (!Array.isArray(FILT) || FILT.length === 0) {
+  alert("No hay datos para exportar");
+  return;
+}
+
+const data = FILT.map(r => ({
+  "Fecha": r.fechaIngreso || "",
+  "Pedido": r.pedido || "",
+  "Cliente": r.cliente || "",
+  "Dirección": r.direccion || "",
+  "Comuna": r.comuna || "",
+  "Cajas": r.etiquetas || 0,
+  "Observaciones": r.observaciones || "",
+  "Estado": r.status || ""
+}));
+
+const ws = XLSX.utils.json_to_sheet(data);
+const wb = XLSX.utils.book_new();
+
+XLSX.utils.book_append_sheet(wb, ws, "Pedidos");
+
+XLSX.writeFile(wb, "Pedidos.xlsx");
+}
+
+
+
+
+
+async function load(){
+ const r=await fetch(API);
+ RAW=await r.json();
+ fComuna.innerHTML='<option value="">Todas las comunas</option>'+
+  [...new Set(RAW.map(x=>x.comuna))].map(c=>'<option>'+c+'</option>').join('');
+ applyFilters();
+}
+load();
+</script>
+</body>
+</html>
